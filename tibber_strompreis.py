@@ -139,10 +139,7 @@ def getprice():
 
 
 
-# Funktion um den Strompreis von Tibber abzufragen und auf dem Pixoo64 Display anzuzeigen
 def main():
-#    getprices()
-#    exit()
 
     #Anzeige initialisieren
     fontsize = 12  # starting font size
