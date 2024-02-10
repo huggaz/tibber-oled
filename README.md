@@ -3,6 +3,9 @@ The display changes every 30 seconds between date&time and current price and a c
 
 Also on the first screen an icon is shown to view at a quick glance if the price is cheap or not. 
 
+Hardware:
+https://www.amazon.de/dp/B078J78R45/ref=twister_B07Z5C98B4
+
 HowTo:
 Just create an API Key on the Tibber site and replace the demo key in api_key.py ( https://developer.tibber.com/settings/accesstoken )
 
