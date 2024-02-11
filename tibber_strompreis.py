@@ -1,28 +1,78 @@
 # Erstellt mit python 3.9.7
-# Danke an https://github.com/SomethingWithComputers/pixoo er hat eine Library für das Pixoo64 Display geschrieben
-
-
 from luma.core.interface.serial import i2c
 from luma.core.render import canvas
 from luma.oled.device import sh1106, ssd1306
 from PIL import ImageFont, ImageDraw, Image
 from pathlib import Path
+import array as arr
 
 import time
 import requests
 import api_key
 
-print(api_key.API_KEY)
+debug=False
 
+if debug:
+    print(api_key.API_KEY)
+
+# Display initialisieren
 serial = i2c(port=2,address=0x3C)
 device = sh1106(serial)
 
+def getprices():
+    preiseheute = arr.array('f')
+    preisnext12 = arr.array('f')
+
+    url = "https://api.tibber.com/v1-beta/gql"
+    query = """
+    {
+    viewer {
+        homes {
+            currentSubscription{
+                priceInfo{
+                    today {
+                        total
+                        startsAt
+                    }
+                    tomorrow {
+                        total
+                        startsAt
+                    }
+                }
+            }
+        }
+    }
+    }
+    """
+    headers = {
+        "Authorization": 'Bearer ' + api_key.API_KEY,
+        "Content-Type": "application/json",
+    }
+    data = {"query": query}
+
+    response = requests.post(url, json=data, headers=headers)
+    # Drucke die Antwort
+    if debug:
+        print(response.json())
+
+    response_data = response.json()
+    prices = response_data['data']['viewer']['homes'][0]['currentSubscription']['priceInfo']['today']
+    for price in prices:
+        preiseheute.append(price["total"])
+    pricestomorrow = response_data['data']['viewer']['homes'][0]['currentSubscription']['priceInfo']['tomorrow']
+    for price in pricestomorrow:
+        preiseheute.append(price["total"])
+
+    stunde = time.strftime('%H', time.localtime())
+    for x in range(int(stunde),int(stunde) + 12):
+        if debug:
+            print(round(preiseheute[x],3))
+        preisnext12.append(round(preiseheute[x],3))
 
 
+    return preisnext12
 
-
-# Funktion um den Strompreis von Tibber abzufragen und auf dem Pixoo64 Display anzuzeigen
-def main():
+def getprice():
     # Setzte die Api URL
     url = "https://api.tibber.com/v1-beta/gql"
 
@@ -45,13 +95,6 @@ def main():
     }
     }
     """
-    img_path = str(Path(__file__).resolve().parent.joinpath('tup.jpg'))
-    thumbup = Image.open(img_path).convert("1")
-    img_path = str(Path(__file__).resolve().parent.joinpath('tdown.jpg'))
-    thumbdown = Image.open(img_path).convert("1")
-    img_path = str(Path(__file__).resolve().parent.joinpath('cheap.jpg'))
-    cheapicon = Image.open(img_path).convert("1")
-
     # Trage hier deine  Authentifizierung ein
     headers = {
         "Authorization": 'Bearer ' + api_key.API_KEY,
@@ -67,7 +110,8 @@ def main():
     response = requests.post(url, json=data, headers=headers)
 
     # Drucke die Antwort
-    print(response.json())
+    if debug:
+        print(response.json())
 
     # Schreibe die Antwort in eine Variable
     response_data = response.json()
@@ -80,97 +124,107 @@ def main():
             total_price = home["currentSubscription"]["priceInfo"]["current"]["total"]
             break
     if total_price is None:
-        print("No current subscription found.")
+        if debug:
+            print("No current subscription found.")
     else:
-        print("Total price:", total_price)
+        if debug:
+            print("Total price:", total_price)
 
     # Drucke den Strompreis
-    print(total_price)
+    if debug:
+        print(total_price)
+
+    return total_price
 
 
 
-    # Zeige aktuelle Uhrzeit und gebe sie im deutschen Format aus
+
+# Funktion um den Strompreis von Tibber abzufragen und auf dem Pixoo64 Display anzuzeigen
+def main():
+    #Anzeige initialisieren
     fontsize = 12  # starting font size
     fonttime = ImageFont.truetype("Veranda.ttf", fontsize)
     fontprice = ImageFont.truetype("Veranda.ttf", 15)
+    img_path = str(Path(__file__).resolve().parent.joinpath('tup.jpg'))
+    thumbup = Image.open(img_path).convert("1")
+    img_path = str(Path(__file__).resolve().parent.joinpath('tdown.jpg'))
+    thumbdown = Image.open(img_path).convert("1")
+    img_path = str(Path(__file__).resolve().parent.joinpath('cheap.jpg'))
+    cheapicon = Image.open(img_path).convert("1")
+
+    #Variablen initialisieren
+    displausab=23
+    displausbis=6
+
+    preishoch=0.3
+    preisniedrig=0.23
 
 
     while True:
-        with canvas(device) as draw:
-            now = time.localtime()
-            jetzt = time.strftime('%H:%M:%S', now)
-            datum = time.strftime('%d.%m.%y', now)
+        try:
+            total_price=getprice()
+            time.sleep(1)
+            nextprices=getprices()
+        except:
+            time.sleep(5)
+            total_price=getprice()
+            time.sleep(5)
+            nextprices=getprices()
 
-            draw.text((66,5), datum, font=fonttime , fill="white")
-            draw.text((66,18), jetzt, font=fonttime , fill="white")
+        #Display nachts ausschalten
+        stunde = time.strftime('%H', time.localtime())
+        if int(stunde) > displausbis and int(stunde) < displausab:
 
-#            draw.text((1,30), "Strompreis")
-            draw.text((66,50), str(round(total_price,3))+"ct" , font=fontprice, fill="white")
+            #Datum, Preise und Icon anzeigen
+            for i in range(1,10):
+                if debug:
+                    print(i)
+                with canvas(device) as draw:
+                    now = time.localtime()
+                    jetzt = time.strftime('%H:%M:%S', now)
+                    datum = time.strftime('%d.%m.%y', now)
+                    #beim Stundenwechsel den aktuellen Preis holen
+                    if stunde != int(time.strftime('%H', now)):
+                        total_price=getprice()
 
+                    draw.text((66,5), datum, font=fonttime , fill="white")
+                    draw.text((66,18), jetzt, font=fonttime , fill="white")
+                    draw.text((66,50), str(round(total_price,3))+"e" , font=fontprice, fill="white")
 
-            if total_price < 0.31 and total_price > 0.25:
-                draw.bitmap((0, 0), thumbup, fill = "white")
-            if total_price > 0.31:
-                draw.bitmap((0, 0), thumbdown, fill = "white")
-            if total_price < 0.25:
-                draw.bitmap((0, 0), cheapicon, fill = "white")
+                    if total_price < preishoch and total_price > preisniedrig:
+                        draw.bitmap((0, 0), thumbup, fill = "white")
+                    if total_price > preishoch:
+                        draw.bitmap((0, 0), thumbdown, fill = "white")
+                    if total_price < preisniedrig:
+                        draw.bitmap((0, 0), cheapicon, fill = "white")
 
-        time.sleep(5)
+                time.sleep(3)
+                i+=1
 
-"""
-    # Ist der total_price kleiner als 0,3 dann zeige grüne Ampel
-    if total_price < 0.3:
-        pix.draw_image('images/ampel_gruen.png')
-    # Ist der total_price größer als 0,3 und kleiner als 0,4 dann zeige gelbe Ampel
-    elif total_price > 0.3 and total_price < 0.4:
-        pix.draw_image('images/ampel_gelb.png')
-    # Ist der total_price größer als 0,4 dann zeige rote Ampel
-    elif total_price > 0.4:
-        pix.draw_image('images/ampel_rot.png')
+            #Balkendiagramme malen
+            if debug:
+                print("weiter gehts")
 
-    # Schreibe die Texte auf dem Display
-    pix.draw_text('Tibber', (3,  3), (  0,   255, 0))
-    pix.draw_text('Strompreis', (3,  9), (255,   0,   0))
-    pix.draw_text(time.strftime('%d.%m.%Y', now), (3,  15), (252,253,254))
-    pix.draw_text(time.strftime('%H:%M', now), (3,  21), (252,253,254))
-    # Ist der total_price kleiner als 0,3 dann zeige grüne Schrift
-    if total_price < 0.3:
-        pix.draw_text(str(total_price) + ' Euro', (3,  28), (0,255,0))
-    # Ist der total_price größer als 0,3 und kleiner als 0,4 dann zeige gelbe Schrift
-    elif total_price > 0.3 and total_price < 0.4:
-        pix.draw_text(str(total_price) + ' Euro', (3,  28), (255,255,0))
-    # Ist der total_price größer als 0,4 dann zeige rote Schrift
-    elif total_price > 0.4:
-        pix.draw_text(str(total_price) + ' Euro', (3,  28), (255,   0,   0))
+            with canvas(device) as draw:
+                draw.rectangle((0,0,128,64),fill = "black", outline = "black")
+                draw.line((0,15,128,15), fill=10 )
+                draw.line((0,35,128,35), fill=10 )
+                draw.text((109,21), "25", font=fonttime , fill="white")
+                draw.line((0,55,128,55), fill=10 )
+                draw.text((109,41), "15", font=fonttime , fill="white")
+                n=1
+                for i in range(1,12):
+                    nextbar=85 - (int(nextprices[i]*100)*2)
+                    if debug:
+                        print(nextbar)
+                        print(nextprices[i])
 
-    pix.draw_text('Preis', (3, 50), (252,   253,   254))
-    pix.draw_text('inkl. Abgaben', (3, 56), (252,   253,   254))
-    # Zeige die Texte auf dem Display
-    pix.push()
-    # Schreibe die Laufschrift auf dem Display
-    pix.send_text( '    Jede Stunde wird der Preis angepasst                    ' , (0, 32), (  0,   255, 0), 1, 0, 46,  75)
+                    draw.rectangle((n,nextbar,(n+5),64), fill = "white", outline = "white")
 
-    # Setze den Hintergrund auf schwarz
-    pix.fill((0, 0, 0))
-    # Bestimme das Hintergrundbild
-    # Ist der total_price kleiner als 0,3 dann zeige grüne Ampel
-    if total_price < 0.3:
-        pix.draw_image('images/ampel_gruen.png')
-    # Ist der total_price größer als 0,3 und kleiner als 0,4 dann zeige gelbe Ampel
-    elif total_price > 0.3 and total_price < 0.4:
-        pix.draw_image('images/ampel_gelb.png')
-    # Ist der total_price größer als 0,4 dann zeige rote Ampel
-    elif total_price > 0.4:
-        pix.draw_image('images/ampel_rot.png')
+                    n+=9
+                    i+=1
 
-
-        oled_font = ImageFont.truetype('FreeSans.ttf', 14)
-        with canvas(device) as draw:
-            draw.rectangle(device.bounding_box, outline = "white", fill = "black")
-            draw.text((10, 10), "OLED-Display", font = oled_font, fill = "white")
-"""
-    # wiederholen alle 10 Sekunden die Funktion
-
+            time.sleep(30)
 
 if __name__ == "__main__":
     try:
